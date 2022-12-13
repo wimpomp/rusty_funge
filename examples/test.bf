@@ -1,2 +1,2 @@
-#!/usr/bin/env befunge
-45*1-y>>#,:#<_$:w@
+#!/usr/bin/env rusty_funge
+00gg00@

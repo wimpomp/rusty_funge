@@ -1,4 +1,4 @@
-#!/usr/bin/env befunge
+#!/usr/bin/env rusty_funge
 v>>> > v>>> > v
  012 3  012 3
  ^?^    ^?^

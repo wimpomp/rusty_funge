@@ -1,13 +1,10 @@
 use std::collections::HashMap;
-use std::{fmt, fs};
-use std::fmt::{Debug, Display, Formatter};
+use std::{env, fs, fmt, fmt::{Debug, Display, Formatter}};
 use std::io::stdin;
-use std::ops::{Index, IndexMut};
-use std::error::Error;
-use std::path::Path;
-use chrono::{Datelike, Timelike};
+use std::ops::{Deref, DerefMut, Index, IndexMut};
+use std::{error::Error, hash::Hash, path::Path};
+use chrono::{offset::Local, {Datelike, Timelike}};
 use rand::Rng;
-use chrono::offset::Local;
 
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -83,7 +80,7 @@ struct Output {
 impl Output {
     fn print(&mut self, string: String) {
         match self.sink {
-            OutputEnum::StdOut => println!("{}", string),
+            OutputEnum::StdOut => print!("{}", string),
             OutputEnum::Vector(ref mut v) => v.push(string)
         }
     }
@@ -254,11 +251,7 @@ impl IP {
     }
 
     fn op(&self, funge: &Funge) -> isize {
-        if funge.code.contains_key(&self.position) {
-            funge.code[&self.position]
-        } else {
-            32
-        }
+        funge.code[&self.position]
     }
 
     fn reverse(&mut self) {
@@ -346,25 +339,25 @@ impl IP {
             2 => { vec![isize::BITS as isize] }
             3 => {
                 let mut f = 0;
-                for (i, c) in "wpfunge".chars().enumerate() {
+                for (i, c) in "wprustyfunge".chars().enumerate() {
                     f += (256 as isize).pow(i as u32) * ord(c)?;
                 }
                 vec![f]
             }
-            4 => { vec![VERSION.replace(".", "").parse()?] }
-            5 => { vec![1] }
-            6 => { vec![ord(std::path::MAIN_SEPARATOR)?] }
-            7 => { vec![2] }
-            8 => { vec![self.id as isize] }
-            9 => { vec![0] }
-            10 => { self.position.to_owned() }
-            11 => { self.delta.to_owned() }
-            12 => { self.offset.to_owned() }
-            13 => { funge.extent.chunks(2).map(|i| i[0]).collect() }
-            14 => { funge.extent.chunks(2).map(|i| i[1]).collect() }
-            15 => { vec![((time.year() as isize) - 1900) * 256 * 256 + (time.month() as isize) * 256 + (time.day() as isize)] }
-            16 => { vec![(time.hour() as isize) * 256 * 256 + (time.minute() as isize) * 256 + (time.second() as isize)] }
-            17 => { vec![self.stack.len_stack() as isize] }
+            4 => vec![VERSION.replace(".", "").parse()?],
+            5 => vec![1],
+            6 => vec![ord(std::path::MAIN_SEPARATOR)?],
+            7 => vec![2],
+            8 => vec![*&self.id as isize],
+            9 => vec![0],
+            10 => self.position.to_owned(),
+            11 => self.delta.to_owned(),
+            12 => self.offset.to_owned(),
+            13 => funge.extent.chunks(2).map(|i| i[0]).collect(),
+            14 => funge.extent.chunks(2).map(|i| i[1]).collect(),
+            15 => vec![((time.year() as isize) - 1900) * 256 * 256 + (time.month() as isize) * 256 + (time.day() as isize)],
+            16 => vec![(time.hour() as isize) * 256 * 256 + (time.minute() as isize) * 256 + (time.second() as isize)],
+            17 => vec![self.stack.len_stack() as isize],
             18 => {
                 let mut l = Vec::new();
                 for stack in &self.stack.stackstack {
@@ -375,17 +368,16 @@ impl IP {
             }
             19 => {
                 let mut r = Vec::new();
-                let mut args = std::env::args();
-                if args.len() > 2 {
-                    for i in 2..args.len() {
-                        let j: Vec<isize> = args.nth(i).expect("We checked the length.")
-                            .chars().map(|i| ord(i).expect("")).collect();
+                let args: Vec<String> = env::args().collect();
+                if args.len() > 1 {
+                    for i in 1..args.len() {
+                        let j: Vec<isize> = args[i].chars().map(|i| ord(i).expect("")).collect();
                         r.extend(j);
                         r.push(0);
                     }
                 }
                 r.push(0);
-                let file = args.nth(1).expect("We checked the length.");
+                let file = &args[0];
                 let path = Path::new(&file);
                 let j: Vec<isize> = path.file_name().ok_or("No file name.")?
                     .to_str().ok_or("Cannot convert String.")?
@@ -398,7 +390,7 @@ impl IP {
             }
             20 => {
                 let mut r = Vec::new();
-                let vars = std::env::vars();
+                let vars = env::vars();
                 for (key, value) in vars {
                     let j: Vec<isize> = key.chars().map(|i| ord(i).expect("")).collect();
                     r.extend(j);
@@ -457,7 +449,11 @@ impl IP {
                 47 => { // /
                     let b = self.stack.pop();
                     let a = self.stack.pop();
-                    self.stack.push(a / b);
+                    if b == 0 {
+                        self.stack.push(0);
+                    } else {
+                        self.stack.push(a / b);
+                    }
                 }
                 37 => { // %
                     let b = self.stack.pop();
@@ -466,7 +462,11 @@ impl IP {
                 }
                 33 => { // !
                     let a = self.stack.pop();
-                    self.stack.push(!a as isize);
+                    if a == 0 {
+                        self.stack.push(1);
+                    } else {
+                        self.stack.push(0);
+                    }
                 }
                 96 => { // `
                     let b = self.stack.pop();
@@ -771,10 +771,46 @@ impl IP {
     }
 }
 
+
+#[derive(Clone)]
+struct DefaultHashMap<K: Eq + Hash, V: Clone> {
+    hashmap: HashMap<K, V>,
+    default: V
+}
+
+impl<K: Eq + Hash, V: Clone> DefaultHashMap<K, V> {
+    fn new(default: V) -> Self {
+        Self { hashmap: HashMap::new(), default }
+    }
+}
+
+impl<K: Eq + Hash, V: Clone> Deref for DefaultHashMap<K, V> {
+    type Target = HashMap<K, V>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.hashmap
+    }
+}
+
+impl<K: Eq + Hash, V: Clone> DerefMut for DefaultHashMap<K, V> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.hashmap
+    }
+}
+
+impl<K: Eq + Hash, V: Clone> Index<&K> for DefaultHashMap<K, V> {
+    type Output = V;
+
+    fn index(&self, index: &K) -> &Self::Output {
+        self.hashmap.get(&index).unwrap_or(&self.default)
+    }
+}
+
+
 #[derive(Clone)]
 pub struct Funge {
     extent: Vec<isize>,
-    code: HashMap<Vec<isize>, isize>,
+    code: DefaultHashMap<Vec<isize>, isize>,
     steps: isize,
     ips: Vec<IP>,
     inputs: Input,
@@ -786,7 +822,7 @@ impl Funge {
     pub fn new<T: ToString>(code: T) -> Result<Self, Box<dyn Error>> {
         let mut new = Self {
             extent: vec![0, 0, 0, 0],
-            code: HashMap::new(),
+            code: DefaultHashMap::new(32),
             steps: 0,
             ips: Vec::new(),
             inputs: Input { source: InputEnum::StdIn },
@@ -794,7 +830,8 @@ impl Funge {
             terminated: false
         };
         let mut code: Vec<String> = code.to_string().lines().map(|i| String::from(i)).collect();
-        if code[0].starts_with(r"#!/usr/bin/env befunge") | code[0].starts_with(r"#!/usr/bin/env -S befunge") {
+        let exe = env::current_exe()?.file_name().ok_or("No exe name")?.to_str().unwrap().to_string();
+        if code[0].starts_with(&*format!(r"#!/usr/bin/env {}", exe)) | code[0].starts_with(&*format!(r"#!/usr/bin/env -S {}", exe)) {
             code.remove(0);
         }
         new.insert_code(code, 0, 0)?;
@@ -885,7 +922,7 @@ impl Funge {
 
     fn to_string(&self, show_ips: bool) -> String {
         let mut lines = Vec::new();
-        for (key, value) in (&self.code).into_iter() {
+        for (key, value) in (&*self.code).into_iter() {
             let x= key[0] as usize;
             let y= key[1] as usize;
             while lines.len() <= y {
@@ -894,7 +931,7 @@ impl Funge {
             while lines[y].len() <= x {
                 lines[y].push(String::from(" "));
             }
-            if ((32 <= *value) & (*value <= 126)) | ((161 <= *value) & (*value <= 255)) {
+            if ((&32 <= value) & (value <= &126)) | ((&161 <= value) & (value <= &255)) {
                 lines[y][x] = chr(*value).unwrap().to_string();
             } else {
                 lines[y][x] = chr(164).unwrap().to_string();
@@ -912,15 +949,13 @@ impl Funge {
         let mut string = String::from("grid:\n");
         string.push_str(&join(&lines.iter().map(|i| join(&i, "")).collect(), "\n"));
         string.push_str("\n\nstacks:\n");
-        for ip in &self.ips {
-            string.push_str(&ip.stack.to_string());
-        }
+        string.push_str(&join(&(&self.ips).iter().map(|ip| ip.stack.to_string()).collect(), "\n"));
 
         match &self.output.sink {
             OutputEnum::StdOut => { },
             OutputEnum::Vector(v) => {
                 string.push_str("\n\nOutput:\n");
-                string.push_str(&*join(&v, ""));
+                string.push_str(&join(&v, ""));
             }
         };
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env befunge
+#!/usr/bin/env rusty_funge
 992+*: v:                                                                      <
 v" ".:<_091+".reeb fo selttob erom on ,llaw eht no reeb fo selttob erom oN">:v
 ,v"Go to the store and buy some more, 99 bottles of beer on the wall."+910<^,_v

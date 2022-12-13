@@ -1,3 +1,3 @@
-#!/usr/bin/env befunge
+#!/usr/bin/env rusty_funge
     v
 @000_1t111@

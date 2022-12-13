@@ -1,4 +1,4 @@
-#!/usr/bin/env befunge
+#!/usr/bin/env rusty_funge
 & :v>00g2/.@
 v00_^#!`/2g00:<
 >0p:1>>:10p` !|

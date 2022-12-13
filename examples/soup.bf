@@ -1,4 +1,4 @@
-#!/usr/bin/env befunge
+#!/usr/bin/env rusty_funge
       060p070                                                           p'O80v
     pb2*90p4$4>                                                         $4$>v>
   v4$>4$>4$>4$>#                                                        ARGH>!

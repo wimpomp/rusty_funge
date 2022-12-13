@@ -1,4 +1,4 @@
-#!/usr/bin/env befunge
+#!/usr/bin/env rusty_funge
 7^DN>vA
 v_#v? v
 7^<""""

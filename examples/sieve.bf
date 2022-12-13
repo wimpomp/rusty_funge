@@ -1,4 +1,4 @@
-#!/usr/bin/env befunge
+#!/usr/bin/env rusty_funge
 2>:3g" "-!v\  g30          <
  |!`"O":+1_:.:03p>03g+:"O"`|
  @               ^  p3\" ":<

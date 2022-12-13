@@ -1,3 +1,4 @@
+#!/usr/bin/env rusty_funge
  v>>>>>v
   12345
   ^?^

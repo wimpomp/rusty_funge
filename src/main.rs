@@ -2,7 +2,7 @@ mod debug;
 
 use std::error::Error;
 use clap::Parser;
-use befunge::Funge;
+use rusty_funge::Funge;
 use debug::FungeView;
 
 
@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     match args.debug {
-        Some(interval) => FungeView::new(funge)?.debug(interval)?,
+        Some(interval) => FungeView::new(funge)?.debug(interval).unwrap(),
         None => { funge.run()?; }
     }
     Ok(())

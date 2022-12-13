@@ -1,3 +1,4 @@
+#!/usr/bin/env rusty_funge
 " ?tupni",v
 v.:&,,,,,,<
 >" = !",,,v
