@@ -1,23 +1,20 @@
 use std::cmp::{min, max};
-use std::error::Error;
+use std::{error::Error, time::Duration};
 use std::fmt::{Display, Formatter};
 use std::sync::{Arc, Mutex};
 use std::thread::{sleep, spawn};
-use std::time::Duration;
-use cursive::{Cursive, CursiveExt, Vec2};
-use cursive::view::View;
-use cursive::Printer;
+use cursive::{Cursive, CursiveExt, Printer, Vec2};
+use cursive::{theme::ColorStyle, view::View};
 use cursive::event::{Event, EventResult};
-use cursive::theme::ColorStyle;
-use crate::Funge;
+use rusty_funge::{Int, Funge};
 
 
-struct FungeMutex {
-    funge: Option<Funge>
+struct FungeMutex<I: Int> {
+    funge: Option<Funge<I>>
 }
 
-impl FungeMutex {
-    fn new(funge: Funge) -> Self {
+impl<I: Int> FungeMutex<I> {
+    fn new(funge: Funge<I>) -> Self {
         Self { funge: Some(funge) }
     }
 
@@ -31,24 +28,24 @@ impl FungeMutex {
         Ok(terminated)
     }
 
-    fn funge_ref(&self) -> Option<&Funge> {
+    fn funge_ref(&self) -> Option<&Funge<I>> {
         self.funge.as_ref()
     }
 }
 
-impl Display for FungeMutex {
+impl<I: Int> Display for FungeMutex<I> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.funge.as_ref().expect("No funge found"))
     }
 }
 
 
-pub(crate) struct FungeView {
-    funge: Arc<Mutex<FungeMutex>>
+pub(crate) struct FungeView<I: Int> {
+    funge: Arc<Mutex<FungeMutex<I>>>
 }
 
-impl FungeView {
-    pub (crate) fn new(funge: Funge) -> Result<Self, Box<dyn Error>> {
+impl<I: Int> FungeView<I> {
+    pub (crate) fn new(funge: Funge<I>) -> Result<Self, Box<dyn Error>> {
         Ok(FungeView { funge: Arc::new(Mutex::new(FungeMutex::new(funge.with_output()?))) } )
     }
 
@@ -86,7 +83,7 @@ impl FungeView {
     }
 }
 
-impl View for FungeView {
+impl<I: Int> View for FungeView<I> {
     fn draw(&self, printer: &Printer) {
         let (text, ips_pos, terminated) = {
             let lock = self.funge.lock();

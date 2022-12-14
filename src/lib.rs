@@ -1,13 +1,17 @@
 use std::collections::HashMap;
 use std::{env, fs, fmt, fmt::{Debug, Display, Formatter}};
-use std::io::stdin;
-use std::ops::{Deref, DerefMut, Index, IndexMut};
-use std::{error::Error, hash::Hash, path::Path};
+use std::ops::{Add, Deref, DerefMut, Index, IndexMut, Sub};
+use std::{error::Error, hash::Hash, path::Path, str::FromStr, io::stdin};
 use chrono::{offset::Local, {Datelike, Timelike}};
 use rand::Rng;
+use num::{Integer, NumCast};
 
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+
+pub trait Int: Integer + NumCast + FromStr + Hash + Clone + Copy + Sync + Send + Display + 'static {}
+impl<I: Integer + NumCast + FromStr + Hash + Clone + Copy + Sync + Send + Display + 'static> Int for I {}
 
 
 fn join<T: ToString>(v: &Vec<T>, s: &str) -> String {
@@ -24,19 +28,34 @@ fn join<T: ToString>(v: &Vec<T>, s: &str) -> String {
     string
 }
 
-fn ord(c: char) -> Result<isize, Box<dyn Error>> {
-    Ok(u32::try_from(c)?.try_into()?)
+fn cast_int<I: NumCast, J: NumCast>(j: J) -> Result<I, Box<dyn Error>> {
+    Ok(I::from(j).ok_or("Could not convert from primitive")?)
 }
 
-fn chr(i: isize) -> Result<char, Box<dyn Error>> {
-    Ok(u32::try_from(i)?.try_into()?)
+fn cast_vec_int<I: NumCast, J: NumCast>(j: Vec<J>) -> Result<Vec<I>, Box<dyn Error>> {
+    let mut i = Vec::<I>::new();
+    for n in j {
+        i.push(cast_int(n)?);
+    }
+    Ok(i)
 }
 
-fn add(a: &Vec<isize>, b: &Vec<isize>) -> Vec<isize> {
+fn ord<I: NumCast>(c: char) -> Result<I, Box<dyn Error>>
+{
+    Ok(cast_int::<_, u32>(c.try_into()?)?)
+}
+
+fn chr<I: NumCast>(i: I) -> Result<char, Box<dyn Error>> {
+    Ok(cast_int::<u32, _>(i)?.try_into()?)
+}
+
+fn add<I: Add + Copy>(a: &Vec<I>, b: &Vec<I>) -> Vec<I> where
+    Vec<I>: FromIterator<<I as Add>::Output> {
     a.iter().zip(b.iter()).map(|(&a, &b)| a + b).collect()
 }
 
-fn sub(a: &Vec<isize>, b: &Vec<isize>) -> Vec<isize> {
+fn sub<I: Sub + Copy>(a: &Vec<I>, b: &Vec<I>) -> Vec<I> where
+    Vec<I>: FromIterator<<I as Sub>::Output> {
     a.iter().zip(b.iter()).map(|(&a, &b)| a - b).collect()
 }
 
@@ -88,38 +107,38 @@ impl Output {
 
 
 #[derive(Clone)]
-struct Stack {
-    stack: Vec<isize>
+struct Stack<I: Int> {
+    stack: Vec<I>
 }
 
 
-impl Stack {
+impl<I: Int> Stack<I> {
     fn new() -> Self {
         Self { stack: Vec::new() }
     }
 
-    fn pop(&mut self) -> isize {
+    fn pop(&mut self) -> I {
         match self.stack.pop() {
             Some(value) => { value }
-            None => { 0 }
+            None => { I::zero() }
         }
     }
 
-    fn push(&mut self, cell: isize) {
+    fn push(&mut self, cell: I) {
         self.stack.push(cell)
     }
 
     fn len(&self) -> usize { self.stack.len() }
 }
 
-impl Display for Stack {
+impl<I: Int> Display for Stack<I> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "[{}]", join(&self.stack, ", "))
     }
 }
 
-impl Index<usize> for Stack {
-    type Output = isize;
+impl<I: Int> Index<usize> for Stack<I> {
+    type Output = I;
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.stack[index]
@@ -127,11 +146,11 @@ impl Index<usize> for Stack {
 }
 
 #[derive(Clone)]
-struct StackStack {
-    stackstack: Vec<Stack>
+struct StackStack<I: Int> {
+    stackstack: Vec<Stack<I>>
 }
 
-impl StackStack {
+impl<I: Int> StackStack<I> {
     fn new() -> Self {
         Self { stackstack: vec![Stack::new()] }
     }
@@ -142,26 +161,26 @@ impl StackStack {
         }
     }
 
-    fn pop(&mut self) -> isize {
+    fn pop(&mut self) -> I {
         self.check_stack();
         let x = self.len_stack();
         self.stackstack[x - 1].pop()
     }
 
-    fn push(&mut self, cell: isize) {
+    fn push(&mut self, cell: I) {
         self.check_stack();
         let x = self.len_stack();
         self.stackstack[x - 1].push(cell);
     }
 
-    fn pop_stack(&mut self) -> Stack {
+    fn pop_stack(&mut self) -> Stack<I> {
         match self.stackstack.pop() {
             Some(stack) => { stack }
             None => { Stack::new() }
         }
     }
 
-    fn push_stack(&mut self, stack: Stack) {
+    fn push_stack(&mut self, stack: Stack<I>) {
         self.stackstack.push(stack)
     }
 
@@ -188,21 +207,21 @@ impl StackStack {
     }
 }
 
-impl Index<usize> for StackStack {
-    type Output = Stack;
+impl<I: Int> Index<usize> for StackStack<I> {
+    type Output = Stack<I>;
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.stackstack[index]
     }
 }
 
-impl IndexMut<usize> for StackStack {
+impl<I: Int> IndexMut<usize> for StackStack<I> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.stackstack[index]
     }
 }
 
-impl Display for StackStack {
+impl<I: Int> Display for StackStack<I> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}", join(&self.stackstack, "\n"))
     }
@@ -210,19 +229,19 @@ impl Display for StackStack {
 
 
 #[derive(Clone)]
-struct IP {
+struct IP<I: Int> {
     id: usize,
     position: Vec<isize>,
     delta: Vec<isize>,
     offset: Vec<isize>,
     string: bool,
-    stack: StackStack,
-    fingerprint_ops: HashMap<isize, ()>,
+    stack: StackStack<I>,
+    fingerprint_ops: HashMap<I, ()>,
 }
 
 
-impl IP {
-    fn new(funge: &Funge) -> Result<Self, Box<dyn Error>> {
+impl<I: Int> IP<I> {
+    fn new(funge: &Funge<I>) -> Result<Self, Box<dyn Error>> {
         let mut new = IP {
             id: funge.ips.len(),
             position: vec![0, 0],
@@ -232,13 +251,13 @@ impl IP {
             stack: StackStack::new(),
             fingerprint_ops: HashMap::new()
         };
-        if (new.op(funge) == ord(' ')?) | (new.op(funge) == ord(';')?) {
-            new.advance(funge);
+        if let Ok(32 | 59) = cast_int(new.op(funge)) {
+            new.advance(funge)?;
         };
         Ok(new)
     }
 
-    fn copy(&self, funge: &Funge) -> Self {
+    fn copy(&self, funge: &Funge<I>) -> Self {
         Self {
             id: funge.ips.len(),
             position: self.position.to_owned(),
@@ -250,7 +269,7 @@ impl IP {
         }
     }
 
-    fn op(&self, funge: &Funge) -> isize {
+    fn op(&self, funge: &Funge<I>) -> I {
         funge.code[&self.position]
     }
 
@@ -266,10 +285,12 @@ impl IP {
         self.delta = vec![self.delta[1], -self.delta[0]];
     }
 
-    fn advance(&mut self, funge: &Funge) {
-        if self.string {
-            if funge.code[&self.position] == 32 {
-                while funge.code[&self.position] == 32 {
+    fn advance(&mut self, funge: &Funge<I>) -> Result<(), Box<dyn Error>> {
+        let space: I = cast_int(32)?;
+        let semicolon: I = cast_int(59)?;
+        Ok(if self.string {
+            if self.op(funge) == space {
+                while self.op(funge) == space {
                     self.movep(funge)
                 }
             } else {
@@ -277,36 +298,44 @@ impl IP {
             }
         } else {
             loop {
-                if self.op(funge) != 59 {
+                if self.op(funge) != semicolon {
                     self.movep(funge)
                 }
-                if self.op(funge) == 59 {
+                if self.op(funge) == semicolon {
                     self.movep(funge);
-                    while self.op(funge) == 59 {
+                    while self.op(funge) != semicolon {
                         self.movep(funge)
                     }
                     self.movep(funge)
                 }
-                while self.op(funge) == 32 {
+                while self.op(funge) == space {
                     self.movep(funge)
                 }
-                if self.op(funge) != 59 {
+                if self.op(funge) != semicolon {
                     break;
                 }
             }
-        }
+        })
     }
 
-    fn movep(&mut self, funge: &Funge) {
+    fn movep(&mut self, funge: &Funge<I>) {
         self.position = self.next_pos(funge);
     }
 
-    fn check_pos(&self, pos: &Vec<isize>, funge: &Funge) -> bool {
+    fn skip(mut self, funge: Funge<I>) -> Result<(Funge<I>, Option<Vec<Self>>), Box<dyn Error>> {
+        self.movep(&funge);
+        if let Ok(32 | 59) = cast_int(self.op(&funge)) {
+            self.advance(&funge)?;
+        };
+        return Ok((funge, Some(vec![self])))
+    }
+
+    fn check_pos(&self, pos: &Vec<isize>, funge: &Funge<I>) -> bool {
         (funge.extent[0] <= pos[0]) & (pos[0] < funge.extent[1]) &
             (funge.extent[2] <= pos[1]) & (pos[1] < funge.extent[3])
     }
 
-    fn next_pos(&self, funge: &Funge) -> Vec<isize> {
+    fn next_pos(&self, funge: &Funge<I>) -> Vec<isize> {
         let mut pos= add(&self.position, &self.delta);
         if !self.check_pos(&pos, funge) {
             loop {
@@ -324,7 +353,7 @@ impl IP {
         let mut string = String::new();
         loop {
             let f = self.stack.pop();
-            if f == 0 {
+            if f == I::zero() {
                 return Ok(string)
             } else {
                 string.push_str(&chr(f)?.to_string())
@@ -332,105 +361,117 @@ impl IP {
         }
     }
 
-    fn get_info(&self, funge: &Funge, n: isize) -> Result<Vec<isize>, Box<dyn Error>> {
+    fn get_info(&self, funge: &Funge<I>, n: I) -> Result<Vec<I>, Box<dyn Error>> {
         let time = Local::now();
-        Ok(match n {
-            1 => { vec![15] }
-            2 => { vec![isize::BITS as isize] }
-            3 => {
-                let mut f = 0;
-                for (i, c) in "wprustyfunge".chars().enumerate() {
-                    f += (256 as isize).pow(i as u32) * ord(c)?;
-                }
-                vec![f]
-            }
-            4 => vec![VERSION.replace(".", "").parse()?],
-            5 => vec![1],
-            6 => vec![ord(std::path::MAIN_SEPARATOR)?],
-            7 => vec![2],
-            8 => vec![*&self.id as isize],
-            9 => vec![0],
-            10 => self.position.to_owned(),
-            11 => self.delta.to_owned(),
-            12 => self.offset.to_owned(),
-            13 => funge.extent.chunks(2).map(|i| i[0]).collect(),
-            14 => funge.extent.chunks(2).map(|i| i[1]).collect(),
-            15 => vec![((time.year() as isize) - 1900) * 256 * 256 + (time.month() as isize) * 256 + (time.day() as isize)],
-            16 => vec![(time.hour() as isize) * 256 * 256 + (time.minute() as isize) * 256 + (time.second() as isize)],
-            17 => vec![self.stack.len_stack() as isize],
-            18 => {
-                let mut l = Vec::new();
-                for stack in &self.stack.stackstack {
-                    l.push(stack.len() as isize);
-                }
-                l.reverse();
-                l
-            }
-            19 => {
-                let mut r = Vec::new();
-                let args: Vec<String> = env::args().collect();
-                if args.len() > 1 {
-                    for i in 1..args.len() {
-                        let j: Vec<isize> = args[i].chars().map(|i| ord(i).expect("")).collect();
-                        r.extend(j);
-                        r.push(0);
+        match n.to_usize() {
+            Some(n @ 1..=20) => {
+                Ok(match n {
+                    1 => vec![cast_int(15)?],
+                    2 => vec![cast_int(8 * std::mem::size_of::<I>())?],
+                    3 => {
+                        let mut f = 0;
+                        for (i, c) in "wprustyfunge".chars().enumerate() {
+                            f += (256 as isize).pow(i as u32) * ord::<isize>(c)?;
+                        }
+                        vec![cast_int(f)?]
                     }
-                }
-                r.push(0);
-                let file = &args[0];
-                let path = Path::new(&file);
-                let j: Vec<isize> = path.file_name().ok_or("No file name.")?
-                    .to_str().ok_or("Cannot convert String.")?
-                    .chars().map(|i| ord(i).expect("")).collect();
-                r.extend(j);
-                r.push(0);
-                r.push(0);
-                r.reverse();
-                r
+                    4 => vec![cast_int(VERSION.replace(".", "").parse::<isize>()?)?],
+                    5 => vec![I::one()],
+                    6 => vec![ord(std::path::MAIN_SEPARATOR)?],
+                    7 => vec![cast_int(2)?],
+                    8 => vec![cast_int(*&self.id)?],
+                    9 => vec![I::zero()],
+                    10 => cast_vec_int(self.position.to_owned())?,
+                    11 => cast_vec_int(self.delta.to_owned())?,
+                    12 => cast_vec_int(self.offset.to_owned())?,
+                    13 => cast_vec_int(funge.extent.chunks(2).map(|i| i[0]).collect())?,
+                    14 => cast_vec_int(funge.extent.chunks(2).map(|i| i[1]).collect())?,
+                    15 => vec![cast_int((time.year() - 1900) * 256 * 256 + (time.month() as i32) * 256 + (time.day() as i32))?],
+                    16 => vec![cast_int(time.hour() * 256 * 256 + time.minute() * 256 + time.second())?],
+                    17 => vec![cast_int(self.stack.len_stack())?],
+                    18 => {
+                        let mut l = Vec::new();
+                        for stack in &self.stack.stackstack {
+                            l.push(cast_int(stack.len())?);
+                        }
+                        l.reverse();
+                        l
+                    }
+                    19 => {
+                        let mut r = Vec::new();
+                        let args: Vec<String> = env::args().collect();
+                        if args.len() > 1 {
+                            for i in 1..args.len() {
+                                let j: Vec<I> = args[i].chars().map(|i| ord(i).expect("")).collect();
+                                r.extend(j);
+                                r.push(I::zero());
+                            }
+                        }
+                        r.push(I::zero());
+                        let file = &args[0];
+                        let path = Path::new(&file);
+                        let j: Vec<I> = path.file_name().ok_or("No file name.")?
+                            .to_str().ok_or("Cannot convert String.")?
+                            .chars().map(|i| ord(i).expect("")).collect();
+                        r.extend(j);
+                        r.push(I::zero());
+                        r.push(I::zero());
+                        r.reverse();
+                        r
+                    }
+                    20 => {
+                        let mut r = Vec::new();
+                        let vars = env::vars();
+                        for (key, value) in vars {
+                            let j: Vec<I> = key.chars().map(|i| ord(i).expect("")).collect();
+                            r.extend(j);
+                            r.push(ord('=')?);
+                            let j: Vec<I> = value.chars().map(|i| ord(i).expect("")).collect();
+                            r.extend(j);
+                            r.push(I::zero());
+                        }
+                        r.push(I::zero());
+                        r.reverse();
+                        r
+                    }
+                    i => {
+                        let j = i as usize - 20;
+                        let l = self.stack.len();
+                        if l >= j {
+                            vec![self.stack.stackstack[0][l - j]]
+                        } else {
+                            vec![I::zero()]
+                        }
+                    }
+                })
             }
-            20 => {
-                let mut r = Vec::new();
-                let vars = env::vars();
-                for (key, value) in vars {
-                    let j: Vec<isize> = key.chars().map(|i| ord(i).expect("")).collect();
-                    r.extend(j);
-                    r.push(ord('=')?);
-                    let j: Vec<isize> = value.chars().map(|i| ord(i).expect("")).collect();
-                    r.extend(j);
-                    r.push(0);
-                }
-                r.push(0);
-                r.reverse();
-                r
+            _ => {
+                // TODO: return Error
+                println!("{}", "Stack size overflow");
+                Ok(Vec::new())
             }
-            i => {
-                let j = i as usize - 20;
-                let l = self.stack.len();
-                if l >= j {
-                    vec![self.stack.stackstack[0][l - j]]
-                } else {
-                    vec![0]
-                }
-            }
-        })
+        }
     }
 
-    fn not_implemented(&mut self, funge: &Funge) {
+    fn not_implemented(&mut self, funge: &Funge<I>) {
+        // TODO: reverse or quit option
         println!("operator {} at {} not implemented", self.op(funge), join(&self.position, ", "));
         self.reverse()
     }
 
-    fn step(mut self, mut funge: Funge, k: bool) -> Result<(Funge, Option<Vec<Self>>), Box<dyn Error>> {
+    fn step(mut self, mut funge: Funge<I>, k: bool) -> Result<(Funge<I>, Option<Vec<Self>>), Box<dyn Error>> {
         let mut new_ips = Vec::new();
+        let op = self.op(&funge);
+        let op8 = op.to_u8();
         if self.string {
-            match self.op(&funge) {
-                34 => { self.string = false }  // '
-                s => { self.stack.push(s) }
+            match op8 {
+                Some(34) => { self.string = false }  // "
+                _ => { self.stack.push(op) }
             }
-        } else if self.fingerprint_ops.contains_key(&self.op(&funge)) {
+        } else if self.fingerprint_ops.contains_key(&op) {
             // self.fingerprint_ops[self.op(funge)]?
-        } else if (0 <= self.op(&funge)) & (self.op(&funge) < 255) {
-            match self.op(&funge) {
+        } else if let Some(0..=255) = op8 {
+            match op8.expect("Could not convert.") {
                 43 => { // +
                     let b = self.stack.pop();
                     let a = self.stack.pop();
@@ -449,8 +490,8 @@ impl IP {
                 47 => { // /
                     let b = self.stack.pop();
                     let a = self.stack.pop();
-                    if b == 0 {
-                        self.stack.push(0);
+                    if b == I::zero() {
+                        self.stack.push(I::zero());
                     } else {
                         self.stack.push(a / b);
                     }
@@ -462,16 +503,20 @@ impl IP {
                 }
                 33 => { // !
                     let a = self.stack.pop();
-                    if a == 0 {
-                        self.stack.push(1);
+                    if a == I::zero() {
+                        self.stack.push(I::one());
                     } else {
-                        self.stack.push(0);
+                        self.stack.push(I::zero());
                     }
                 }
                 96 => { // `
                     let b = self.stack.pop();
                     let a = self.stack.pop();
-                    self.stack.push((a > b) as isize);
+                    if a > b {
+                        self.stack.push(I::one());
+                    } else {
+                        self.stack.push(I::zero());
+                    }
                 }
                 62 => self.delta = vec![1, 0], // >
                 60 => self.delta = vec![-1, 0], // <
@@ -487,14 +532,14 @@ impl IP {
                     };
                 }
                 95 => { // _
-                    if self.stack.pop() == 0 {
+                    if self.stack.pop() == I::zero() {
                         self.delta = vec![1, 0]
                     } else {
                         self.delta = vec![-1, 0]
                     }
                 }
                 124 => { // |
-                    if self.stack.pop() == 0 {
+                    if self.stack.pop() == I::zero() {
                         self.delta = vec![0, 1];
                     } else {
                         self.delta = vec![0, -1];
@@ -515,24 +560,30 @@ impl IP {
                 36 => { self.stack.pop(); } // $
                 46 => funge.output.print(format!("{} ", self.stack.pop())), // .
                 44 => funge.output.print(format!("{}", chr(self.stack.pop())?)), // ,
-                35 => self.movep(&funge), // #
+                35 => { // #
+                    self.movep(&funge);
+                    return self.skip(funge)
+                }
                 112 => { // p
-                    let y = self.stack.pop();
-                    let x = self.stack.pop();
+                    let y: isize = cast_int(self.stack.pop())?;
+                    let x: isize = cast_int(self.stack.pop())?;
                     let v = self.stack.pop();
                     funge.insert(v, x + self.offset[0], y + self.offset[1]);
                 }
                 103 => { // g
-                    let y = self.stack.pop();
-                    let x = self.stack.pop();
-                    self.stack.push(funge.code[&vec![x + self.offset[0], y + self.offset[1]]]);
+                    let y: isize = cast_int(self.stack.pop())?;
+                    let x: isize = cast_int(self.stack.pop())?;
+                    self.stack.push(*&funge.code[&vec![x + self.offset[0], y + self.offset[1]]]);
                 }
                 38 => { // &
                     let s = funge.inputs.get()?;
                     let i: Vec<char> = s.chars()
                         .skip_while(|i| !i.is_digit(10))
                         .take_while(|i| i.is_digit(10)).collect();
-                    self.stack.push(join(&i, "").parse()?);
+                    match join(&i, "").parse() {
+                        Ok(n) => self.stack.push(n),
+                        _ => println!("Cannot convert input to number.")  // TODO: Error
+                    }
                 }
                 126 => { // ~
                     let s = funge.inputs.get()?;
@@ -540,8 +591,8 @@ impl IP {
                 }
                 64 => { return Ok((funge, Some(Vec::new()))); } // @
                 32 => { // space
-                    self.advance(&funge);
-                    return self.step(funge, false);
+                    self.advance(&funge)?;
+                    return Ok(self.step(funge,false)?);
                 }
                 // 98 from here
                 91 => self.turn_left(), // [
@@ -549,21 +600,22 @@ impl IP {
                 39 => { // '
                     self.movep(&funge);
                     self.stack.push(self.op(&funge));
+                    return self.skip(funge)
                 }
                 123 => { // {
                     let n = self.stack.pop();
-                    let cells = if n > 0 {
+                    let cells = if n > I::zero() {
                         let mut cells = Vec::new();
-                        for _ in 0..n {
+                        for _ in 0..cast_int(n)? {
                             cells.push(self.stack.pop());
                         }
                         cells.reverse();
                         cells
                     } else {
-                        vec![0; -n as usize]
+                        vec![I::zero(); -cast_int::<isize, _>(n)? as usize]
                     };
                     for coordinate in &self.offset {
-                        self.stack.push(*coordinate);
+                        self.stack.push(cast_int(*coordinate)?);
                     }
                     self.stack.push_stack(Stack::new());
                     for cell in cells {
@@ -573,19 +625,19 @@ impl IP {
                 }
                 125 => { // }
                     let n = self.stack.pop();
-                    let cells = if n > 0 {
+                    let cells = if n > I::zero() {
                         let mut cells = Vec::new();
-                        for _ in 0..n {
+                        for _ in 0..cast_int(n)? {
                             cells.push(self.stack.pop());
                         }
                         cells.reverse();
                         cells
                     } else {
-                        vec![0; -n as usize]
+                        vec![I::zero(); -cast_int::<isize, _>(n)? as usize]
                     };
                     self.stack.pop_stack();
-                    let y = self.stack.pop();
-                    let x = self.stack.pop();
+                    let y = cast_int(self.stack.pop())?;
+                    let x = cast_int(self.stack.pop())?;
                     self.offset = vec![x, y];
                     for cell in cells {
                         self.stack.push(cell);
@@ -608,10 +660,10 @@ impl IP {
                 105 => { // i
                     let file = self.read_string()?;
                     let flags = self.stack.pop();
-                    let y0 = self.stack.pop();
-                    let x0 = self.stack.pop();
+                    let y0 = cast_int(self.stack.pop())?;
+                    let x0 = cast_int(self.stack.pop())?;
                     let text = fs::read_to_string(file)?;
-                    let (width, height) = if flags % 2 != 0 {
+                    let (width, height) = if flags.is_odd() {
                         let code: Vec<char> = text.chars().collect();
                         funge.insert_code(vec![join(&code, "")], x0, y0)?;
                         (text.len(), 1)
@@ -627,19 +679,20 @@ impl IP {
                         funge.insert_code(code, x0, y0)?;
                         (width, height)
                     };
-                    self.stack.push(x0);
-                    self.stack.push(y0);
-                    self.stack.push(width as isize);
-                    self.stack.push(height as isize);
+                    self.stack.push(cast_int(x0)?);
+                    self.stack.push(cast_int(y0)?);
+                    self.stack.push(cast_int(width)?);
+                    self.stack.push(cast_int(height)?);
                 }
                 106 => { // j
-                    for _ in 0..self.stack.pop() {
+                    for _ in 0..cast_int(self.stack.pop())? {
                         self.movep(&funge);
                     }
+                    return self.skip(funge)
                 }
                 107 => { // k
-                    self.advance(&funge);
-                    let n = self.stack.pop();
+                    self.advance(&funge)?;
+                    let n = cast_int(self.stack.pop())?;
                     let mut ips = vec![self];
                     for _ in 0..n {
                         let mut new_ips = Vec::new();
@@ -660,12 +713,12 @@ impl IP {
                 111 => { // o
                     let file = self.read_string()?;
                     let flags = self.stack.pop();
-                    let x0 = self.stack.pop();
-                    let y0 = self.stack.pop();
-                    let width = self.stack.pop();
-                    let height = self.stack.pop();
+                    let x0 = cast_int(self.stack.pop())?;
+                    let y0 = cast_int(self.stack.pop())?;
+                    let width: isize = cast_int(self.stack.pop())?;
+                    let height: isize = cast_int(self.stack.pop())?;
                     let mut text = Vec::new();
-                    if flags % 2 != 0 {
+                    if flags.is_odd() {
                         for x in x0..x0 + width {
                             let mut line = String::new();
                             for y in y0..y0 + height {
@@ -701,7 +754,7 @@ impl IP {
                     if self.stack.is_empty() {
                         self.reverse();
                     } else {
-                        let n = self.stack.pop();
+                        let n = cast_int(self.stack.pop())?;
                         let l = self.stack.len_stack();
                         if n > 0 {
                             for _ in 0..n {
@@ -726,15 +779,15 @@ impl IP {
                     }
                 }
                 120 => { // x
-                    let dy = self.stack.pop();
-                    let dx = self.stack.pop();
+                    let dy = cast_int(self.stack.pop())?;
+                    let dx = cast_int(self.stack.pop())?;
                     self.delta = vec![dx, dy];
                 }
                 121 => { // y
                     let n = self.stack.pop();
-                    if n <= 0 {
+                    if n <= I::zero() {
                         for j in 1..21 {
-                            for i in self.get_info(&funge,j) {
+                            for i in self.get_info(&funge,cast_int(j)?) {
                                 for cell in i {
                                     self.stack.push(cell);
                                 }
@@ -749,21 +802,15 @@ impl IP {
                     }
                 }
                 122 => { } // z
-                d => {
-                    if (48 <= d) & (d <= 57) { // 0123456789
-                        self.stack.push(d - 48);
-                    } else if (97 <= d) & (d <= 102) {
-                        self.stack.push(d - 87);
-                    } else {
-                        self.not_implemented(&funge);
-                    }
-                }
+                48..=57 => self.stack.push(self.op(&funge) - cast_int(48)?), // 0123456789
+                97..=102 => self.stack.push(self.op(&funge) - cast_int(87)?), // abcdef
+                _ => self.not_implemented(&funge)
             }
         } else {
             self.not_implemented(&funge);
         }
         if !k {
-            self.advance(&funge);
+            self.advance(&funge)?;
         }
         let mut ips = vec![self];
         ips.extend(new_ips);
@@ -808,21 +855,21 @@ impl<K: Eq + Hash, V: Clone> Index<&K> for DefaultHashMap<K, V> {
 
 
 #[derive(Clone)]
-pub struct Funge {
+pub struct Funge<I: Int> {
     extent: Vec<isize>,
-    code: DefaultHashMap<Vec<isize>, isize>,
+    code: DefaultHashMap<Vec<isize>, I>,
     steps: isize,
-    ips: Vec<IP>,
+    ips: Vec<IP<I>>,
     inputs: Input,
     output: Output,
     pub terminated: bool
 }
 
-impl Funge {
+impl<I: Int> Funge<I> {
     pub fn new<T: ToString>(code: T) -> Result<Self, Box<dyn Error>> {
         let mut new = Self {
-            extent: vec![0, 0, 0, 0],
-            code: DefaultHashMap::new(32),
+            extent: vec![0; 4],
+            code: DefaultHashMap::new(cast_int(32)?),
             steps: 0,
             ips: Vec::new(),
             inputs: Input { source: InputEnum::StdIn },
@@ -853,7 +900,7 @@ impl Funge {
         Ok(self)
     }
 
-    fn insert(&mut self, i: isize, x: isize, y: isize) {
+    fn insert(&mut self, i: I, x: isize, y: isize) {
         self.code.insert(vec![x, y], i);
     }
 
@@ -920,7 +967,7 @@ impl Funge {
         pos
     }
 
-    fn to_string(&self, show_ips: bool) -> String {
+    fn get_string(&self, show_ips: bool) -> String {
         let mut lines = Vec::new();
         for (key, value) in (&*self.code).into_iter() {
             let x= key[0] as usize;
@@ -931,7 +978,7 @@ impl Funge {
             while lines[y].len() <= x {
                 lines[y].push(String::from(" "));
             }
-            if ((&32 <= value) & (value <= &126)) | ((&161 <= value) & (value <= &255)) {
+            if let Some(32..=126) | Some(161..=255) = value.to_u8() {
                 lines[y][x] = chr(*value).unwrap().to_string();
             } else {
                 lines[y][x] = chr(164).unwrap().to_string();
@@ -965,14 +1012,14 @@ impl Funge {
     }
 }
 
-impl Display for Funge {
+impl<I: Int> Display for Funge<I> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_string(false))
+        write!(f, "{}", self.get_string(false))
     }
 }
 
-impl Debug for Funge {
+impl<I: Int> Debug for Funge<I> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_string(true))
+        write!(f, "{}", self.get_string(true))
     }
 }
