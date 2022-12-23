@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 use std::{env, fs, fmt, fmt::{Debug, Display, Formatter}};
 use std::ops::{Add, Deref, DerefMut, Index, IndexMut, Sub};
-use std::{error::Error, hash::Hash, path::Path, str::FromStr, io::stdin};
+use std::{hash::Hash, path::Path, str::FromStr, io::stdin};
 use chrono::{offset::Local, {Datelike, Timelike}};
 use rand::Rng;
 use num::{Integer, NumCast};
+use anyhow::{Error, Result};
 
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -14,7 +15,7 @@ pub trait Int: Integer + NumCast + FromStr + Hash + Clone + Copy + Sync + Send +
 impl<I: Integer + NumCast + FromStr + Hash + Clone + Copy + Sync + Send + Display + 'static> Int for I {}
 
 
-fn join<T: ToString>(v: &Vec<T>, s: &str) -> String {
+pub fn join<T: ToString>(v: &Vec<T>, s: &str) -> String {
     let mut string = String::new();
     if v.len() > 1 {
         for i in 0..v.len() - 1 {
@@ -28,11 +29,11 @@ fn join<T: ToString>(v: &Vec<T>, s: &str) -> String {
     string
 }
 
-fn cast_int<I: NumCast, J: NumCast>(j: J) -> Result<I, Box<dyn Error>> {
-    Ok(I::from(j).ok_or("Could not convert from primitive")?)
+fn cast_int<I: NumCast, J: NumCast>(j: J) -> Result<I> {
+    Ok(I::from(j).ok_or(Error::msg("Could not convert from primitive"))?)
 }
 
-fn cast_vec_int<I: NumCast, J: NumCast>(j: Vec<J>) -> Result<Vec<I>, Box<dyn Error>> {
+fn cast_vec_int<I: NumCast, J: NumCast>(j: Vec<J>) -> Result<Vec<I>> {
     let mut i = Vec::<I>::new();
     for n in j {
         i.push(cast_int(n)?);
@@ -40,12 +41,11 @@ fn cast_vec_int<I: NumCast, J: NumCast>(j: Vec<J>) -> Result<Vec<I>, Box<dyn Err
     Ok(i)
 }
 
-fn ord<I: NumCast>(c: char) -> Result<I, Box<dyn Error>>
-{
+pub fn ord<I: NumCast>(c: char) -> Result<I> {
     Ok(cast_int::<_, u32>(c.try_into()?)?)
 }
 
-fn chr<I: NumCast>(i: I) -> Result<char, Box<dyn Error>> {
+fn chr<I: NumCast>(i: I) -> Result<char> {
     Ok(cast_int::<u32, _>(i)?.try_into()?)
 }
 
@@ -61,49 +61,62 @@ fn sub<I: Sub + Copy>(a: &Vec<I>, b: &Vec<I>) -> Vec<I> where
 
 
 #[derive(Clone)]
-enum InputEnum {
-    StdIn,
-    Vector(Vec<String>)
+pub struct IO {
+    store: Vec<String>,
+    input: fn(&mut Vec<String>) -> Result<String>,
+    output: fn(&mut Vec<String>, String) -> Result<()>
 }
 
-#[derive(Clone)]
-struct Input {
-    source: InputEnum
-}
-
-impl Input {
-    fn get(&mut self) -> Result<String, Box<dyn Error>> {
-        Ok(match self.source {
-            InputEnum::StdIn => {
-                let mut s = String::new();
-                stdin().read_line(&mut s)?;
-                s
+impl IO {
+    pub fn new() -> Self {
+        Self {
+            store: Vec::new(),
+            input: |store| {
+                Ok(match store.pop() {
+                    None => {
+                        let mut s = String::new();
+                        stdin().read_line(&mut s)?;
+                        s
+                    }
+                    Some(s) => s
+                })
+            },
+            output: |_, s| {
+                print!("{}", s);
+                Ok(())
             }
-            InputEnum::Vector(ref mut v) => v.pop().ok_or("No more input!")?
-        })
-    }
-}
-
-
-#[derive(Clone)]
-enum OutputEnum {
-    StdOut,
-    Vector(Vec<String>)
-}
-
-#[derive(Clone)]
-struct Output {
-    sink: OutputEnum
-}
-
-impl Output {
-    fn print(&mut self, string: String) {
-        match self.sink {
-            OutputEnum::StdOut => print!("{}", string),
-            OutputEnum::Vector(ref mut v) => v.push(string)
         }
     }
+
+    pub fn with_store(mut self, mut store: Vec<String>) -> Self {
+        store.reverse();
+        self.store = store;
+        self
+    }
+
+    pub fn with_input(mut self, fun: fn(&mut Vec<String>) -> Result<String>) -> Self {
+        self.input = fun;
+        self
+    }
+
+    pub fn with_output(mut self, fun: fn(&mut Vec<String>, String) -> Result<()>) -> Self {
+        self.output = fun;
+        self
+    }
+
+    fn pop(&mut self) -> Result<String> {
+        (self.input)(&mut self.store)
+    }
+
+    fn push(&mut self, s: String) -> Result<()> {
+        (self.output)(&mut self.store, s)
+    }
+
+    pub fn get(&self) -> String {
+        join(&self.store, "")
+    }
 }
+
 
 
 #[derive(Clone)]
@@ -229,11 +242,11 @@ impl<I: Int> Display for StackStack<I> {
 
 
 #[derive(Clone)]
-struct IP<I: Int> {
+pub struct IP<I: Int> {  // TODO, getter fns in funge instead of pubs
     id: usize,
     position: Vec<isize>,
     delta: Vec<isize>,
-    offset: Vec<isize>,
+    pub offset: Vec<isize>,
     string: bool,
     stack: StackStack<I>,
     fingerprint_ops: HashMap<I, ()>,
@@ -241,7 +254,7 @@ struct IP<I: Int> {
 
 
 impl<I: Int> IP<I> {
-    fn new(funge: &Funge<I>) -> Result<Self, Box<dyn Error>> {
+    fn new(funge: &Funge<I>) -> Result<Self> {
         let mut new = IP {
             id: funge.ips.len(),
             position: vec![0, 0],
@@ -285,7 +298,7 @@ impl<I: Int> IP<I> {
         self.delta = vec![self.delta[1], -self.delta[0]];
     }
 
-    fn advance(&mut self, funge: &Funge<I>) -> Result<(), Box<dyn Error>> {
+    fn advance(&mut self, funge: &Funge<I>) -> Result<()> {
         let space: I = cast_int(32)?;
         let semicolon: I = cast_int(59)?;
         Ok(if self.string {
@@ -322,7 +335,7 @@ impl<I: Int> IP<I> {
         self.position = self.next_pos(funge);
     }
 
-    fn skip(mut self, funge: Funge<I>) -> Result<(Funge<I>, Option<Vec<Self>>), Box<dyn Error>> {
+    fn skip(mut self, funge: Funge<I>) -> Result<(Funge<I>, Option<Vec<Self>>)> {
         self.movep(&funge);
         if let Ok(32 | 59) = cast_int(self.op(&funge)) {
             self.advance(&funge)?;
@@ -349,7 +362,7 @@ impl<I: Int> IP<I> {
         pos
     }
 
-    fn read_string(&mut self) -> Result<String, Box<dyn Error>> {
+    fn read_string(&mut self) -> Result<String> {
         let mut string = String::new();
         loop {
             let f = self.stack.pop();
@@ -361,7 +374,7 @@ impl<I: Int> IP<I> {
         }
     }
 
-    fn get_info(&self, funge: &Funge<I>, n: I) -> Result<Vec<I>, Box<dyn Error>> {
+    fn get_info(&self, funge: &Funge<I>, n: I) -> Result<Vec<I>> {
         let time = Local::now();
         match n.to_usize() {
             Some(n @ 1..=20) => {
@@ -370,7 +383,7 @@ impl<I: Int> IP<I> {
                     2 => vec![cast_int(8 * std::mem::size_of::<I>())?],
                     3 => {
                         let mut f = 0;
-                        for (i, c) in "wprustyfunge".chars().enumerate() {
+                        for (i, c) in "wprusty".chars().enumerate() {
                             f += (256 as isize).pow(i as u32) * ord::<isize>(c)?;
                         }
                         vec![cast_int(f)?]
@@ -410,8 +423,8 @@ impl<I: Int> IP<I> {
                         r.push(I::zero());
                         let file = &args[0];
                         let path = Path::new(&file);
-                        let j: Vec<I> = path.file_name().ok_or("No file name.")?
-                            .to_str().ok_or("Cannot convert String.")?
+                        let j: Vec<I> = path.file_name().ok_or(Error::msg("No file name."))?
+                            .to_str().ok_or(Error::msg("Cannot convert String."))?
                             .chars().map(|i| ord(i).expect("")).collect();
                         r.extend(j);
                         r.push(I::zero());
@@ -445,21 +458,21 @@ impl<I: Int> IP<I> {
                     }
                 })
             }
-            _ => {
-                // TODO: return Error
-                println!("{}", "Stack size overflow");
-                Ok(Vec::new())
-            }
+            _ => Err(Error::msg("Stack size overflow"))
         }
     }
 
-    fn not_implemented(&mut self, funge: &Funge<I>) {
-        // TODO: reverse or quit option
-        println!("operator {} at {} not implemented", self.op(funge), join(&self.position, ", "));
-        self.reverse()
+    fn not_implemented(mut self, funge: &Funge<I>) -> Option<Self> {
+        match funge.on_error {
+            OnError::Reverse => {
+                self.reverse();
+                Some(self)
+            }
+            OnError::Quit => None
+        }
     }
 
-    fn step(mut self, mut funge: Funge<I>, k: bool) -> Result<(Funge<I>, Option<Vec<Self>>), Box<dyn Error>> {
+    fn step(mut self, mut funge: Funge<I>, k: bool) -> Result<(Funge<I>, Option<Vec<Self>>)> {
         let mut new_ips = Vec::new();
         let op = self.op(&funge);
         let op8 = op.to_u8();
@@ -558,8 +571,8 @@ impl<I: Int> IP<I> {
                     self.stack.push(b);
                 }
                 36 => { self.stack.pop(); } // $
-                46 => funge.output.print(format!("{} ", self.stack.pop())), // .
-                44 => funge.output.print(format!("{}", chr(self.stack.pop())?)), // ,
+                46 => funge.output.push(format!("{} ", self.stack.pop()))?,
+                44 => funge.output.push(format!("{}", chr(self.stack.pop())?))?, // ,
                 35 => { // #
                     self.movep(&funge);
                     return self.skip(funge)
@@ -576,18 +589,18 @@ impl<I: Int> IP<I> {
                     self.stack.push(*&funge.code[&vec![x + self.offset[0], y + self.offset[1]]]);
                 }
                 38 => { // &
-                    let s = funge.inputs.get()?;
+                    let s = funge.input.pop()?;
                     let i: Vec<char> = s.chars()
                         .skip_while(|i| !i.is_digit(10))
                         .take_while(|i| i.is_digit(10)).collect();
                     match join(&i, "").parse() {
                         Ok(n) => self.stack.push(n),
-                        _ => println!("Cannot convert input to number.")  // TODO: Error
+                        _ => Err(Error::msg("Cannot convert input to number."))?
                     }
                 }
                 126 => { // ~
-                    let s = funge.inputs.get()?;
-                    self.stack.push(ord(s.chars().nth(0).ok_or("No valid input.")?)?);
+                    let s = funge.input.pop()?;
+                    self.stack.push(ord(s.chars().nth(0).ok_or(Error::msg("No valid input."))?)?);
                 }
                 64 => { return Ok((funge, Some(Vec::new()))); } // @
                 32 => { // space
@@ -649,7 +662,7 @@ impl<I: Int> IP<I> {
                 }
                 40 => { // ( no fingerprints are implemented
                     // self.read_fingerprint();
-                    // self.fingerprint_ops[] = self.reverse;
+                    // self.fingerprint_ops[] = self.Reverse;
                     self.reverse();
                 }
                 41 => { // )
@@ -670,7 +683,7 @@ impl<I: Int> IP<I> {
                     } else {
                         let text: Vec<&str> = text.lines().collect();
                         let height = text.len();
-                        let width = text.iter().map(|i| i.len()).min().ok_or("Cannot calculate width.")?;
+                        let width = text.iter().map(|i| i.len()).min().ok_or(Error::msg("Cannot calculate width."))?;
                         let mut code: Vec<String> = Vec::new();
                         for line in text {
                             let a = format!("{}{}", line, join(&vec![" "; width - line.len()], ""));
@@ -739,7 +752,10 @@ impl<I: Int> IP<I> {
                     let text = join(&text, "\n");
                     fs::write(file, text)?;
                 }
-                113 => { return Ok((funge, None)) } // q
+                113 => {
+                    funge.return_code = cast_int(self.stack.pop())?;
+                    return Ok((funge, None))
+                } // q
                 114 => self.reverse(), // r
                 115 => { // s
                     self.movep(&funge);
@@ -804,10 +820,16 @@ impl<I: Int> IP<I> {
                 122 => { } // z
                 48..=57 => self.stack.push(self.op(&funge) - cast_int(48)?), // 0123456789
                 97..=102 => self.stack.push(self.op(&funge) - cast_int(87)?), // abcdef
-                _ => self.not_implemented(&funge)
+                _ => self = match self.not_implemented(&funge) {
+                    Some(ip) => ip,
+                    None => return Ok((funge, None))
+                }
             }
         } else {
-            self.not_implemented(&funge);
+            self = match self.not_implemented(&funge) {
+                Some(ip) => ip,
+                None => return Ok((funge, None))
+            }
         }
         if !k {
             self.advance(&funge)?;
@@ -820,7 +842,7 @@ impl<I: Int> IP<I> {
 
 
 #[derive(Clone)]
-struct DefaultHashMap<K: Eq + Hash, V: Clone> {
+pub struct DefaultHashMap<K: Eq + Hash, V: Clone> {
     hashmap: HashMap<K, V>,
     default: V
 }
@@ -855,29 +877,41 @@ impl<K: Eq + Hash, V: Clone> Index<&K> for DefaultHashMap<K, V> {
 
 
 #[derive(Clone)]
+enum OnError {
+    Reverse,
+    #[allow(dead_code)]
+    Quit,
+}
+
+
+#[derive(Clone)]
 pub struct Funge<I: Int> {
-    extent: Vec<isize>,
-    code: DefaultHashMap<Vec<isize>, I>,
-    steps: isize,
-    ips: Vec<IP<I>>,
-    inputs: Input,
-    output: Output,
-    pub terminated: bool
+    pub extent: Vec<isize>,
+    pub code: DefaultHashMap<Vec<isize>, I>,
+    pub steps: isize,
+    pub ips: Vec<IP<I>>,
+    pub input: IO,
+    pub output: IO,
+    pub terminated: bool,
+    pub return_code: i32,
+    on_error: OnError
 }
 
 impl<I: Int> Funge<I> {
-    pub fn new<T: ToString>(code: T) -> Result<Self, Box<dyn Error>> {
+    pub fn new<T: ToString>(code: T) -> Result<Self> {
         let mut new = Self {
             extent: vec![0; 4],
             code: DefaultHashMap::new(cast_int(32)?),
             steps: 0,
             ips: Vec::new(),
-            inputs: Input { source: InputEnum::StdIn },
-            output: Output { sink: OutputEnum::StdOut },
-            terminated: false
+            input: IO::new(),
+            output: IO::new(),
+            terminated: false,
+            return_code: 0,
+            on_error: OnError::Reverse
         };
         let mut code: Vec<String> = code.to_string().lines().map(|i| String::from(i)).collect();
-        let exe = env::current_exe()?.file_name().ok_or("No exe name")?.to_str().unwrap().to_string();
+        let exe = env::current_exe()?.file_name().ok_or(Error::msg("No exe name"))?.to_str().unwrap().to_string();
         if code[0].starts_with(&*format!(r"#!/usr/bin/env {}", exe)) | code[0].starts_with(&*format!(r"#!/usr/bin/env -S {}", exe)) {
             code.remove(0);
         }
@@ -886,25 +920,30 @@ impl<I: Int> Funge<I> {
         Ok(new)
     }
 
-    pub fn from_file(file: &String) -> Result<Self, Box<dyn Error>> {
+    pub fn from_file(file: &String) -> Result<Self> {
         Ok(Self::new(fs::read_to_string(file)?)?)
     }
 
-    pub fn with_inputs(mut self, inputs: Vec<String>) -> Result<Self, Box<dyn Error>> {
-        self.inputs = Input { source: InputEnum::Vector(inputs) };
-        Ok(self)
+    pub fn with_arguments(mut self, args: Vec<String>) -> Self {
+        self.input = IO::new().with_store(args);
+        self
     }
 
-    pub fn with_output(mut self) -> Result<Self, Box<dyn Error>> {
-        self.output = Output { sink: OutputEnum::Vector(Vec::new()) };
-        Ok(self)
+    pub fn with_input(mut self, input: IO) -> Self {
+        self.input = input;
+        self
+    }
+
+    pub fn with_output(mut self, output: IO) -> Self {
+        self.output = output;
+        self
     }
 
     fn insert(&mut self, i: I, x: isize, y: isize) {
         self.code.insert(vec![x, y], i);
     }
 
-    fn insert_code(&mut self, code: Vec<String>, x0: isize, y0: isize) -> Result<(), Box<dyn Error>> {
+    fn insert_code(&mut self, code: Vec<String>, x0: isize, y0: isize) -> Result<()> {
         for (y, line) in code.iter().enumerate() {
             for (x, char) in line.chars().enumerate() {
                 let x1: isize = x.try_into()?;
@@ -926,14 +965,14 @@ impl<I: Int> Funge<I> {
         Ok(())
     }
 
-    pub fn run(mut self) -> Result<Self, Box<dyn Error>>{
+    pub fn run(mut self) -> Result<Self>{
         while !self.terminated {
             self = self.step()?;
         }
         Ok(self)
     }
 
-    pub fn step(mut self) -> Result<Self, Box<dyn Error>> {
+    pub fn step(mut self) -> Result<Self> {
         if !self.terminated {
             self.ips.reverse();
             let mut new_ips = Vec::new();
@@ -998,13 +1037,12 @@ impl<I: Int> Funge<I> {
         string.push_str("\n\nstacks:\n");
         string.push_str(&join(&(&self.ips).iter().map(|ip| ip.stack.to_string()).collect(), "\n"));
 
-        match &self.output.sink {
-            OutputEnum::StdOut => { },
-            OutputEnum::Vector(v) => {
-                string.push_str("\n\nOutput:\n");
-                string.push_str(&join(&v, ""));
-            }
-        };
+        string.push_str("\n\nIP offset:\n");
+        string.push_str(&*join(&self.ips.iter().map(|ip| join(&ip.offset, ", ")).collect(), "; "));
+
+
+        string.push_str("\n\nOutput\n");
+        string.push_str(&self.output.get());
 
         string.push_str("\n\nsteps:\n");
         string.push_str(&self.steps.to_string());

@@ -1,9 +1,9 @@
 mod debug;
 
-use std::error::Error;
 use clap::Parser;
 use rusty_funge::Funge;
 use debug::FungeView;
+use anyhow::Result;
 
 
 #[derive(Parser)]
@@ -16,6 +16,8 @@ struct Args {
     debug: Option<Option<f64>>,
     #[arg(help = "number of bits in cell and funge values", short, long)]
     bits: Option<u8>,
+    #[arg(help = "skip steps", short, long)]
+    steps: Option<usize>,
     #[arg(id = "arguments to the funge (& or ~)")]
     arguments: Vec<String>,
 }
@@ -24,18 +26,24 @@ struct Args {
 macro_rules! run {
     ($a:expr, $i:ty) => {
         let mut funge = Funge::<$i>::from_file(&$a.input)?;
-        if $a.arguments.len() > 0 {
-            funge = funge.with_inputs($a.arguments)?;
-        }
         match $a.debug {
-            Some(interval) => FungeView::new(funge)?.debug(interval).unwrap(),
-            None => { funge.run()?; }
+            Some(interval) => {
+                let mut funge = FungeView::new(funge, $a.arguments)?;
+                if let Some(s) = $a.steps {
+                    funge.step_n(s);
+                }
+                funge.debug(interval);
+            }
+            None => {
+                funge = funge.with_arguments($a.arguments).run()?;
+                std::process::exit(funge.return_code);
+            }
         }
     }
 }
 
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<()> {
     let args = Args::parse();
     if let None = args.bits {
         run!(args, isize);
