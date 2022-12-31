@@ -1,9 +1,9 @@
 mod debug;
 
+use anyhow::Result;
 use clap::Parser;
 use rusty_funge::Funge;
 use debug::FungeView;
-use anyhow::Result;
 
 
 #[derive(Parser)]
@@ -18,6 +18,8 @@ struct Args {
     bits: Option<u8>,
     #[arg(help = "skip steps", short, long)]
     steps: Option<usize>,
+    #[arg(help = "befunge version (93, 97, 98)", short = 'B', long)]
+    befunge: Option<String>,
     #[arg(id = "arguments to the funge (& or ~)")]
     arguments: Vec<String>,
 }
@@ -26,6 +28,9 @@ struct Args {
 macro_rules! run {
     ($a:expr, $i:ty) => {
         let mut funge = Funge::<$i>::from_file(&$a.input)?;
+        if let Some(s) = $a.befunge {
+            funge = funge.with_version(format!("B{}", s))?;
+        }
         match $a.debug {
             Some(interval) => {
                 let mut funge = FungeView::new(funge, $a.arguments)?;
@@ -35,8 +40,7 @@ macro_rules! run {
                 funge.debug(interval);
             }
             None => {
-                funge = funge.with_arguments($a.arguments).run()?;
-                std::process::exit(funge.return_code);
+                std::process::exit(funge.with_arguments($a.arguments).run()?);
             }
         }
     }
