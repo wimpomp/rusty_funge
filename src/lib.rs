@@ -1091,7 +1091,7 @@ impl<I: Int> FungeSpace<I> {
 
     pub fn insert(&mut self, index: Vec<isize>, op: I) {
         if self.orig_rect.contains(&index) {
-            self.orig_code[(index[1] as usize)][(index[0] as usize)] = op;
+            self.orig_code[index[1] as usize][index[0] as usize] = op;
         } else if op == self.space {
             self.new_code.remove(&index);
         } else {
